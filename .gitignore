@@ -1,0 +1,12 @@
+# Have you ever played Minecraft?  
+sounds/*
+!sounds/.gitkeep
+data.json
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+.vscode/
+.idea/
+node_modules/
+dist/

@@ -1,0 +1,9 @@
+{
+	"id": "sounders",
+	"name": "Sounders",
+	"version": "1.0.0",
+	"minAppVersion": "1.4.0",
+	"description": "Minimalistic audio player in the sidebar: playlists, musics, tracks, sounds, shuffle, repeat, and volume.",
+	"author": "Me1oman",
+	"isDesktopOnly": false
+}

@@ -15,7 +15,7 @@
 
 - Custom track order
 
-![Grab](_TrackOrder.gif)
+![Grab](_trackOrder.gif)
 
 - Shuffle, repeat (off / one / autoplay)
 - Seek bar and volume control

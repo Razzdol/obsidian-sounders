@@ -4,6 +4,7 @@
 # Sounders
 
 ## Quick start
+
 1. **Left-click** the **volume icon** in the sidebar to play the next track (default).
 2. **Right-click** the sidebar icon to open the player and settings.
 3. Add audio files individually or import an entire folder as a playlist.
@@ -18,6 +19,7 @@
 
 ![Grab](_trackOrder.gif)
 
+- Double-click a track name, artist, or playlist title to rename
 - Shuffle, repeat (off / one / autoplay)
 - Seek bar and volume control
 
@@ -39,6 +41,10 @@
 
 ---
 
-version 1.0.0
+See [CHANGELOG.md](CHANGELOG.md) for version history.
+Found a bug? [Open an issue](https://github.com/Razzdol/obsidian-sounders/issues/new)
+Want a new feature? [Email me](mailto:romanovlast.business@gmail.com) at romanovlast.business@gmail.com
+
+version 1.1.0
 
 [by Razzdol :)](https://github.com/Razzdol)

@@ -288,6 +288,38 @@
 	margin: 0;
 }
 
+.sounders-editable {
+	cursor: text;
+}
+
+.sounders-editable:hover {
+	text-decoration: underline dotted;
+	text-underline-offset: 2px;
+}
+
+.sounders-inline-edit {
+	width: 100%;
+	max-width: 100%;
+	box-sizing: border-box;
+	padding: 2px 6px;
+	margin: 0;
+	border: 1px solid var(--text-accent);
+	border-radius: 4px;
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font: inherit;
+	line-height: inherit;
+}
+
+.sounders-list-header.sounders-drag-scroll-top,
+.sounders-list.sounders-drag-scroll-top {
+	box-shadow: inset 0 3px 0 0 var(--text-accent);
+}
+
+.sounders-list.sounders-drag-scroll-bottom {
+	box-shadow: inset 0 -3px 0 0 var(--text-accent);
+}
+
 .sounders-search {
 	width: 100%;
 	margin: 8px 0;

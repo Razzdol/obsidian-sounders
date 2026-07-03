@@ -348,10 +348,44 @@ var SoundersPlugin = class _SoundersPlugin extends import_obsidian.Plugin {
   }
   trackName(ref) {
     var _a;
+    if (ref.displayName)
+      return ref.displayName;
     if (ref.type === "preset")
       return (_a = PRESET_LABELS[ref.id]) != null ? _a : ref.id;
     const dot = ref.id.lastIndexOf(".");
     return dot > 0 ? ref.id.slice(0, dot) : ref.id;
+  }
+  async renameTrackDisplay(playlist, index, displayName) {
+    const ref = playlist.sounds[index];
+    if (!ref)
+      return;
+    const trimmed = displayName.trim();
+    if (trimmed)
+      ref.displayName = trimmed;
+    else
+      delete ref.displayName;
+    await this.saveSettings();
+    this.notifyPlayback();
+  }
+  async renameTrackArtist(playlist, index, artist) {
+    const ref = playlist.sounds[index];
+    if (!ref)
+      return;
+    const trimmed = artist.trim();
+    if (trimmed)
+      ref.artist = trimmed;
+    else
+      delete ref.artist;
+    await this.saveSettings();
+  }
+  async renamePlaylist(id, name) {
+    const pl = this.settings.playlists.find((p) => p.id === id);
+    if (!pl)
+      return;
+    const trimmed = name.trim();
+    if (trimmed)
+      pl.name = trimmed;
+    await this.saveSettings();
   }
   getNowPlayingLabel() {
     return this.currentRef ? this.trackName(this.currentRef) : "Nothing playing";
@@ -758,7 +792,127 @@ var SoundersUI = class {
     this.searchQuery = "";
     this.searchVisible = false;
     this.dragFrom = null;
+    this.dragAutoScrollDir = 0;
+    this.dragAutoScrollRaf = 0;
+    this.dragAutoScrollCleanup = null;
     this.scrubbing = false;
+  }
+  getListScrollParent() {
+    if (!this.listEl)
+      return null;
+    let p = this.listEl.parentElement;
+    while (p && p !== document.body) {
+      const oy = getComputedStyle(p).overflowY;
+      if ((oy === "auto" || oy === "scroll") && p.scrollHeight > p.clientHeight)
+        return p;
+      p = p.parentElement;
+    }
+    const modal = this.listEl.closest(".modal-content");
+    if (modal && modal.scrollHeight > modal.clientHeight)
+      return modal;
+    const tab = this.listEl.closest(".vertical-tab-content");
+    if (tab && tab.scrollHeight > tab.clientHeight)
+      return tab;
+    return document.documentElement;
+  }
+  startDragAutoScroll() {
+    this.stopDragAutoScroll();
+    const scrollEl = this.getListScrollParent();
+    const zone = 48;
+    const speed = 10;
+    const onDragOver = (e) => {
+      if (this.dragFrom === null || !scrollEl)
+        return;
+      const rect = scrollEl.getBoundingClientRect();
+      const y = e.clientY;
+      if (y < rect.top + zone) {
+        this.dragAutoScrollDir = -1;
+        if (this.listEl) {
+          this.listEl.toggleClass("sounders-drag-scroll-top", true);
+          this.listEl.removeClass("sounders-drag-scroll-bottom");
+        }
+      } else if (y > rect.bottom - zone) {
+        this.dragAutoScrollDir = 1;
+        if (this.listEl) {
+          this.listEl.toggleClass("sounders-drag-scroll-bottom", true);
+          this.listEl.removeClass("sounders-drag-scroll-top");
+        }
+      } else {
+        this.dragAutoScrollDir = 0;
+        if (this.listEl) {
+          this.listEl.removeClass("sounders-drag-scroll-top");
+          this.listEl.removeClass("sounders-drag-scroll-bottom");
+        }
+      }
+    };
+    document.addEventListener("dragover", onDragOver);
+    const tick = () => {
+      if (this.dragFrom !== null && this.dragAutoScrollDir && scrollEl)
+        scrollEl.scrollTop += this.dragAutoScrollDir * speed;
+      this.dragAutoScrollRaf = requestAnimationFrame(tick);
+    };
+    this.dragAutoScrollRaf = requestAnimationFrame(tick);
+    this.dragAutoScrollCleanup = () => {
+      document.removeEventListener("dragover", onDragOver);
+      if (this.dragAutoScrollRaf) {
+        cancelAnimationFrame(this.dragAutoScrollRaf);
+        this.dragAutoScrollRaf = 0;
+      }
+      this.dragAutoScrollDir = 0;
+      if (this.listEl) {
+        this.listEl.removeClass("sounders-drag-scroll-top");
+        this.listEl.removeClass("sounders-drag-scroll-bottom");
+      }
+    };
+  }
+  stopDragAutoScroll() {
+    if (this.dragAutoScrollCleanup) {
+      this.dragAutoScrollCleanup();
+      this.dragAutoScrollCleanup = null;
+    }
+  }
+  setupInlineEdit(el, getValue, onCommit, cancelClick) {
+    el.addClass("sounders-editable");
+    (0, import_obsidian.setTooltip)(el, "Double-click to rename");
+    el.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (cancelClick)
+        cancelClick();
+      if (el.querySelector(".sounders-inline-edit"))
+        return;
+      const input = createEl("input", {
+        cls: "sounders-inline-edit",
+        attr: { type: "text" }
+      });
+      input.value = getValue();
+      const finish = async (save) => {
+        input.removeEventListener("blur", onBlur);
+        if (save)
+          await onCommit(input.value);
+        if (input.parentElement)
+          input.remove();
+        el.style.display = "";
+      };
+      const onBlur = () => void finish(true);
+      el.style.display = "none";
+      el.after(input);
+      input.focus();
+      input.select();
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          void finish(true);
+        }
+        if (ev.key === "Escape") {
+          ev.preventDefault();
+          void finish(false);
+        }
+      });
+      input.addEventListener("blur", onBlur);
+      input.addEventListener("click", (ev) => ev.stopPropagation());
+      input.addEventListener("mousedown", (ev) => ev.stopPropagation());
+    });
   }
   render() {
     this.dispose();
@@ -808,10 +962,20 @@ var SoundersUI = class {
     );
     const active = this.plugin.getActivePlaylist();
     const header = c.createDiv({ cls: "sounders-list-header" });
-    header.createEl("h3", {
+    const listTitleEl = header.createEl("h3", {
       text: active ? active.name : "No playlist",
       cls: "sounders-list-title"
     });
+    if (active) {
+      this.setupInlineEdit(
+        listTitleEl,
+        () => active.name,
+        async (value) => {
+          await this.plugin.renamePlaylist(active.id, value);
+          rerender();
+        }
+      );
+    }
     const searchBtn = header.createDiv({ cls: "sounders-player-btn" });
     (0, import_obsidian.setIcon)(searchBtn, "search");
     (0, import_obsidian.setTooltip)(searchBtn, "Search tracks");
@@ -884,7 +1048,42 @@ var SoundersUI = class {
       if (index === this.plugin.currentIndex)
         el.addClass("sounders-track-active");
       this.trackRows.push({ index, el });
-      el.addEventListener("click", () => void this.plugin.playAt(index));
+      let clickTimer = 0;
+      const cancelPlayClick = () => {
+        window.clearTimeout(clickTimer);
+        clickTimer = 0;
+      };
+      el.addEventListener("click", (e) => {
+        if (e.target.closest(".sounders-drag-handle"))
+          return;
+        if (e.target.closest(".setting-item-control"))
+          return;
+        if (e.target.closest(".sounders-inline-edit"))
+          return;
+        cancelPlayClick();
+        clickTimer = window.setTimeout(() => void this.plugin.playAt(index), 220);
+      });
+      this.setupInlineEdit(
+        setting.nameEl,
+        () => this.plugin.trackName(ref),
+        async (value) => {
+          await this.plugin.renameTrackDisplay(active, index, value);
+          this.renderTrackList();
+          this.updatePlayer();
+        },
+        cancelPlayClick
+      );
+      if (ref.type !== "preset" && setting.descEl) {
+        this.setupInlineEdit(
+          setting.descEl,
+          () => ref.artist || "",
+          async (value) => {
+            await this.plugin.renameTrackArtist(active, index, value);
+            this.renderTrackList();
+          },
+          cancelPlayClick
+        );
+      }
       if (draggable) {
         const handle = createDiv({ cls: "sounders-drag-handle" });
         (0, import_obsidian.setIcon)(handle, "grip-vertical");
@@ -897,10 +1096,15 @@ var SoundersUI = class {
           this.dragFrom = index;
           (_a2 = e.dataTransfer) == null ? void 0 : _a2.setData("text/plain", String(index));
           el.addClass("sounders-dragging");
+          this.startDragAutoScroll();
         });
         handle.addEventListener(
           "dragend",
-          () => el.removeClass("sounders-dragging")
+          () => {
+            el.removeClass("sounders-dragging");
+            this.dragFrom = null;
+            this.stopDragAutoScroll();
+          }
         );
         el.addEventListener("dragover", (e) => {
           e.preventDefault();
@@ -1184,6 +1388,7 @@ var SoundersUI = class {
     }
   }
   dispose() {
+    this.stopDragAutoScroll();
     if (this.interval) {
       window.clearInterval(this.interval);
       this.interval = 0;

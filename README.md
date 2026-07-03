@@ -41,8 +41,10 @@
 
 ---
 
-See [CHANGELOG.md](CHANGELOG.md) for version history.
+See [CHANGELOG.md](https://github.com/Razzdol/obsidian-sounders/blob/main/CHANGELOG.md) for version history.
+
 Found a bug? [Open an issue](https://github.com/Razzdol/obsidian-sounders/issues/new)
+
 Want a new feature? [Email me](mailto:romanovlast.business@gmail.com) at romanovlast.business@gmail.com
 
 version 1.1.0

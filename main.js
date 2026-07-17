@@ -23,6 +23,7 @@ __export(main_exports, {
 module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
 var PRESET_NAMES = ["beep", "coin", "pop", "ding", "laser", "drum"];
+var FEEDBACK_URL = "https://forms.gle/mDNdHcpYuvGUW384A";
 var PRESET_LABELS = {
   beep: "Beep",
   coin: "Coin",
@@ -55,10 +56,28 @@ function defaultSettings() {
     ],
     activePlaylistId: "builtin",
     volume: 0.8,
+    playbackRate: 1,
     leftClickAction: "next",
     shuffle: false,
     repeatMode: "auto"
   };
+}
+var RATE_MIN = 0.5;
+var RATE_MAX = 2;
+function clampRate(rate) {
+  return Math.max(RATE_MIN, Math.min(RATE_MAX, rate));
+}
+function fracToRate(f) {
+  return RATE_MIN + Math.max(0, Math.min(1, f)) * (RATE_MAX - RATE_MIN);
+}
+function rateToFrac(rate) {
+  return (clampRate(rate) - RATE_MIN) / (RATE_MAX - RATE_MIN);
+}
+function formatRate(rate) {
+  return clampRate(rate).toFixed(1) + "x";
+}
+function stepRate(rate) {
+  return Math.round(clampRate(rate) * 20) / 20;
 }
 function formatTime(seconds) {
   if (!isFinite(seconds) || seconds < 0)
@@ -547,6 +566,7 @@ var SoundersPlugin = class _SoundersPlugin extends import_obsidian.Plugin {
     const audio = new Audio(url);
     audio.preload = "auto";
     audio.volume = Math.max(0, Math.min(1, this.settings.volume));
+    audio.playbackRate = clampRate(this.settings.playbackRate);
     this.currentAudio = audio;
     const stateHandler = () => this.notifyPlayback();
     audio.addEventListener("loadedmetadata", stateHandler);
@@ -759,6 +779,7 @@ var SoundersPlugin = class _SoundersPlugin extends import_obsidian.Plugin {
       playlists: (data == null ? void 0 : data.playlists) && data.playlists.length > 0 ? data.playlists : base.playlists,
       activePlaylistId: (_a = data == null ? void 0 : data.activePlaylistId) != null ? _a : base.activePlaylistId,
       volume: typeof (data == null ? void 0 : data.volume) === "number" ? data.volume : base.volume,
+      playbackRate: typeof (data == null ? void 0 : data.playbackRate) === "number" ? clampRate(data.playbackRate) : base.playbackRate,
       leftClickAction: (data == null ? void 0 : data.leftClickAction) === "playpause" ? "playpause" : "next",
       shuffle: (data == null ? void 0 : data.shuffle) === true,
       repeatMode: (data == null ? void 0 : data.repeatMode) === "one" || (data == null ? void 0 : data.repeatMode) === "off" ? data.repeatMode : "auto"
@@ -782,6 +803,8 @@ var SoundersUI = class {
     this.nowPlayingEl = null;
     this.shuffleEl = null;
     this.repeatEl = null;
+    this.rate = null;
+    this.rateLabelEl = null;
     this.vol = null;
     this.volPercentEl = null;
     this.controlsEl = null;
@@ -792,6 +815,7 @@ var SoundersUI = class {
     this.searchQuery = "";
     this.searchVisible = false;
     this.dragFrom = null;
+    this.dragDidMove = false;
     this.dragAutoScrollDir = 0;
     this.dragAutoScrollRaf = 0;
     this.dragAutoScrollCleanup = null;
@@ -871,18 +895,20 @@ var SoundersUI = class {
       this.dragAutoScrollCleanup = null;
     }
   }
-  setupInlineEdit(el, getValue, onCommit, cancelClick) {
+  setupInlineEdit(el, getValue, onCommit, cancelClick, inPlace = false) {
     el.addClass("sounders-editable");
-    (0, import_obsidian.setTooltip)(el, "Double-click to rename");
+    if (!inPlace)
+      (0, import_obsidian.setTooltip)(el, "Double-click to rename");
     el.addEventListener("dblclick", (e) => {
       e.stopPropagation();
       e.preventDefault();
       if (cancelClick)
         cancelClick();
-      if (el.querySelector(".sounders-inline-edit"))
+      if (el.closest(".sounders-inline-edit-host") == null ? el.querySelector(".sounders-inline-edit") : el.parentElement.querySelector(".sounders-inline-edit"))
         return;
+      const host = inPlace ? el.parentElement : null;
       const input = createEl("input", {
-        cls: "sounders-inline-edit",
+        cls: "sounders-inline-edit" + (inPlace ? " sounders-inline-edit-inplace" : ""),
         attr: { type: "text" }
       });
       input.value = getValue();
@@ -892,11 +918,20 @@ var SoundersUI = class {
           await onCommit(input.value);
         if (input.parentElement)
           input.remove();
-        el.style.display = "";
+        if (inPlace) {
+          el.removeClass("sounders-inline-edit-hidden");
+        } else {
+          el.style.display = "";
+        }
       };
       const onBlur = () => void finish(true);
-      el.style.display = "none";
-      el.after(input);
+      if (inPlace && host) {
+        el.addClass("sounders-inline-edit-hidden");
+        host.appendChild(input);
+      } else {
+        el.style.display = "none";
+        el.after(input);
+      }
       input.focus();
       input.select();
       input.addEventListener("keydown", (ev) => {
@@ -955,14 +990,24 @@ var SoundersUI = class {
       })
     );
     this.renderPlayer(c);
-    new import_obsidian.Setting(c).addButton(
+    const actionsRow = c.createDiv({ cls: "sounders-actions-row" });
+    const actionsLeft = actionsRow.createDiv({ cls: "sounders-actions-left" });
+    new import_obsidian.Setting(actionsLeft).addButton((btn) => {
+      btn.setIcon("bug");
+      btn.setTooltip("Feedback");
+      btn.buttonEl.addClass("sounders-feedback-btn");
+      btn.onClick(() => window.open(FEEDBACK_URL));
+    });
+    const actionsRight = actionsRow.createDiv({ cls: "sounders-actions-right" });
+    new import_obsidian.Setting(actionsRight).addButton(
       (btn) => btn.setButtonText("Add sounds").setCta().onClick(() => this.plugin.pickAndAddSounds(rerender))
     ).addButton(
       (btn) => btn.setButtonText("Add folder as playlist").onClick(() => this.plugin.addFolderAsPlaylist(rerender))
     );
     const active = this.plugin.getActivePlaylist();
     const header = c.createDiv({ cls: "sounders-list-header" });
-    const listTitleEl = header.createEl("h3", {
+    const titleWrap = header.createDiv({ cls: "sounders-list-title-wrap sounders-inline-edit-host" });
+    const listTitleEl = titleWrap.createEl("h3", {
       text: active ? active.name : "No playlist",
       cls: "sounders-list-title"
     });
@@ -973,12 +1018,16 @@ var SoundersUI = class {
         async (value) => {
           await this.plugin.renamePlaylist(active.id, value);
           rerender();
-        }
+        },
+        void 0,
+        true
       );
     }
-    const searchBtn = header.createDiv({ cls: "sounders-player-btn" });
+    const searchBtn = header.createDiv({ cls: "sounders-header-icon-btn" });
     (0, import_obsidian.setIcon)(searchBtn, "search");
     (0, import_obsidian.setTooltip)(searchBtn, "Search tracks");
+    if (this.searchVisible)
+      searchBtn.addClass("sounders-header-icon-btn-active");
     const searchInput = c.createEl("input", {
       cls: "sounders-search",
       attr: { type: "text", placeholder: "Search tracks..." }
@@ -987,6 +1036,7 @@ var SoundersUI = class {
     searchInput.style.display = this.searchVisible ? "block" : "none";
     searchBtn.addEventListener("click", () => {
       this.searchVisible = !this.searchVisible;
+      searchBtn.toggleClass("sounders-header-icon-btn-active", this.searchVisible);
       if (this.searchVisible) {
         searchInput.style.display = "block";
         searchInput.focus();
@@ -1030,7 +1080,19 @@ var SoundersUI = class {
       if (q && !name.toLowerCase().includes(q) && !artist.toLowerCase().includes(q))
         return;
       const subtitle = ref.type === "preset" ? "Built-in" : artist;
-      const setting = new import_obsidian.Setting(list).setName(name);
+      const card = list.createDiv({ cls: "sounders-track-card" });
+      if (draggable)
+        card.addClass("sounders-track-draggable");
+      const setting = new import_obsidian.Setting(card);
+      setting.nameEl.empty();
+      setting.nameEl.createSpan({
+        cls: "sounders-track-num",
+        text: index + 1 + "."
+      });
+      const titleWrap = setting.nameEl.createSpan({
+        cls: "sounders-track-title-wrap sounders-inline-edit-host"
+      });
+      const titleEl = titleWrap.createSpan({ cls: "sounders-track-title", text: name });
       if (subtitle)
         setting.setDesc(subtitle);
       setting.addExtraButton((btn) => {
@@ -1046,15 +1108,15 @@ var SoundersUI = class {
       const el = setting.settingEl;
       el.addClass("sounders-track");
       if (index === this.plugin.currentIndex)
-        el.addClass("sounders-track-active");
-      this.trackRows.push({ index, el });
+        card.addClass("sounders-track-active");
+      this.trackRows.push({ index, el: card });
       let clickTimer = 0;
       const cancelPlayClick = () => {
         window.clearTimeout(clickTimer);
         clickTimer = 0;
       };
-      el.addEventListener("click", (e) => {
-        if (e.target.closest(".sounders-drag-handle"))
+      card.addEventListener("click", (e) => {
+        if (this.dragDidMove)
           return;
         if (e.target.closest(".setting-item-control"))
           return;
@@ -1064,14 +1126,15 @@ var SoundersUI = class {
         clickTimer = window.setTimeout(() => void this.plugin.playAt(index), 220);
       });
       this.setupInlineEdit(
-        setting.nameEl,
+        titleEl,
         () => this.plugin.trackName(ref),
         async (value) => {
           await this.plugin.renameTrackDisplay(active, index, value);
           this.renderTrackList();
           this.updatePlayer();
         },
-        cancelPlayClick
+        cancelPlayClick,
+        true
       );
       if (ref.type !== "preset" && setting.descEl) {
         this.setupInlineEdit(
@@ -1085,38 +1148,46 @@ var SoundersUI = class {
         );
       }
       if (draggable) {
-        const handle = createDiv({ cls: "sounders-drag-handle" });
-        (0, import_obsidian.setIcon)(handle, "grip-vertical");
-        (0, import_obsidian.setTooltip)(handle, "Drag to reorder");
-        handle.setAttribute("draggable", "true");
-        el.prepend(handle);
-        handle.addEventListener("click", (e) => e.stopPropagation());
-        handle.addEventListener("dragstart", (e) => {
+        card.setAttribute("draggable", "true");
+        card.addEventListener("dragstart", (e) => {
           var _a2;
+          if (e.target.closest(".setting-item-control") || e.target.closest(".sounders-inline-edit")) {
+            e.preventDefault();
+            return;
+          }
+          cancelPlayClick();
+          this.dragDidMove = true;
           this.dragFrom = index;
           (_a2 = e.dataTransfer) == null ? void 0 : _a2.setData("text/plain", String(index));
-          el.addClass("sounders-dragging");
+          if (e.dataTransfer)
+            e.dataTransfer.effectAllowed = "move";
+          card.addClass("sounders-dragging");
           this.startDragAutoScroll();
         });
-        handle.addEventListener(
+        card.addEventListener(
           "dragend",
           () => {
-            el.removeClass("sounders-dragging");
+            card.removeClass("sounders-dragging");
             this.dragFrom = null;
             this.stopDragAutoScroll();
+            window.setTimeout(() => {
+              this.dragDidMove = false;
+            }, 0);
           }
         );
-        el.addEventListener("dragover", (e) => {
+        card.addEventListener("dragover", (e) => {
           e.preventDefault();
-          el.addClass("sounders-dragover");
+          if (e.dataTransfer)
+            e.dataTransfer.dropEffect = "move";
+          card.addClass("sounders-dragover");
         });
-        el.addEventListener(
+        card.addEventListener(
           "dragleave",
-          () => el.removeClass("sounders-dragover")
+          () => card.removeClass("sounders-dragover")
         );
-        el.addEventListener("drop", async (e) => {
+        card.addEventListener("drop", async (e) => {
           e.preventDefault();
-          el.removeClass("sounders-dragover");
+          card.removeClass("sounders-dragover");
           const from = this.dragFrom;
           this.dragFrom = null;
           if (from === null || from === index)
@@ -1231,20 +1302,16 @@ var SoundersUI = class {
       return;
     const playR = ((this.playPauseIconEl == null ? void 0 : this.playPauseIconEl.offsetWidth) || 44) / 2;
     const sliderMin = 24;
-    const leftSide = mid.querySelector(".sounders-controls-left");
-    const rightBtns = mid.querySelector(".sounders-controls-btns");
-    const volIcon = mid.querySelector(".sounders-vol-icon");
-    const pick = (nodes, fallback) => {
-      if (!nodes || nodes.length < 2)
-        return fallback;
-      return nodes[0].offsetWidth + nodes[1].offsetWidth;
-    };
-    const leftPair = pick(leftSide == null ? void 0 : leftSide.children, 46);
+    const leftBtns = mid.querySelector(".sounders-controls-left .sounders-controls-btns");
+    const rightBtns = mid.querySelector(".sounders-controls-right .sounders-controls-btns");
+    const wRateIcon = (leftBtns == null ? void 0 : leftBtns.children[0]) ? leftBtns.children[0].offsetWidth : 16;
+    const wShuffle = (leftBtns == null ? void 0 : leftBtns.children[1]) ? leftBtns.children[1].offsetWidth : 28;
+    const wPrev = (leftBtns == null ? void 0 : leftBtns.children[2]) ? leftBtns.children[2].offsetWidth : 18;
     const wNext = (rightBtns == null ? void 0 : rightBtns.children[0]) ? rightBtns.children[0].offsetWidth : 18;
     const wRepeat = (rightBtns == null ? void 0 : rightBtns.children[1]) ? rightBtns.children[1].offsetWidth : 28;
-    const wVolIcon = (volIcon == null ? void 0 : volIcon.offsetWidth) || 16;
+    const wVolIcon = (rightBtns == null ? void 0 : rightBtns.children[2]) ? rightBtns.children[2].offsetWidth : 16;
     const half = m / 2;
-    const gLeft = (half - leftPair - playR) / 2;
+    const gLeft = (half - sliderMin - wRateIcon - wShuffle - wPrev - playR) / 3.5;
     const gRight = (half - playR - wNext - wRepeat - wVolIcon - sliderMin) / 3.5;
     const g = Math.max(6, Math.min(18, Math.floor(Math.min(gLeft, gRight))));
     root.style.setProperty("--sounders-btn-gap", g + "px");
@@ -1282,18 +1349,46 @@ var SoundersUI = class {
     const controls = player.createDiv({ cls: "sounders-controls" });
     this.controlsEl = controls;
     const grid = controls.createDiv({ cls: "sounders-controls-grid" });
-    grid.createDiv({ cls: "sounders-controls-anchor" });
+    this.rateLabelEl = grid.createSpan({
+      cls: "sounders-edge sounders-edge-left sounders-rate-label",
+      text: formatRate(this.plugin.settings.playbackRate)
+    });
     const mid = grid.createDiv({ cls: "sounders-controls-mid" });
     this.controlsMidEl = mid;
     const sideLeft = mid.createDiv({
       cls: "sounders-controls-side sounders-controls-left"
     });
-    this.shuffleEl = sideLeft.createDiv({
+    const applyRate = (r, stepped) => {
+      var _a;
+      const rate = stepped ? stepRate(r) : clampRate(r);
+      this.plugin.settings.playbackRate = rate;
+      if (this.plugin.currentAudio)
+        this.plugin.currentAudio.playbackRate = rate;
+      (_a = this.rateLabelEl) == null ? void 0 : _a.setText(formatRate(rate));
+      if (stepped && this.rate)
+        this.rate.setFraction(rateToFrac(rate));
+    };
+    this.rate = this.createSlider(sideLeft, "sounders-rate", {
+      onScrub: (f) => applyRate(fracToRate(f), false),
+      onCommit: (f) => {
+        applyRate(fracToRate(f), true);
+        void this.plugin.saveSettings();
+      }
+    });
+    const leftBtns = sideLeft.createDiv({ cls: "sounders-controls-btns" });
+    const rateIcon = leftBtns.createDiv({ cls: "sounders-rate-icon" });
+    (0, import_obsidian.setIcon)(rateIcon, "gauge");
+    (0, import_obsidian.setTooltip)(rateIcon, "Playback speed (double-click to reset)");
+    rateIcon.addEventListener("dblclick", () => {
+      applyRate(1, true);
+      void this.plugin.saveSettings();
+    });
+    this.shuffleEl = leftBtns.createDiv({
       cls: "sounders-player-btn sounders-toggle"
     });
     (0, import_obsidian.setIcon)(this.shuffleEl, "shuffle");
     this.shuffleEl.addEventListener("click", () => this.plugin.toggleShuffle());
-    const prev = sideLeft.createDiv({ cls: "sounders-player-btn" });
+    const prev = leftBtns.createDiv({ cls: "sounders-player-btn" });
     (0, import_obsidian.setIcon)(prev, "skip-back");
     prev.setAttribute("aria-label", "Previous");
     prev.addEventListener("click", () => void this.plugin.playPrevious());
@@ -1337,6 +1432,7 @@ var SoundersUI = class {
     pp.setAttribute("aria-label", "Play / pause");
     pp.addEventListener("click", () => this.plugin.togglePlayPause());
     this.playPauseIconEl = pp;
+    this.rate.setFraction(rateToFrac(this.plugin.settings.playbackRate));
     this.vol.setFraction(this.plugin.settings.volume);
     if (this.controlsResizeObs)
       this.controlsResizeObs.disconnect();

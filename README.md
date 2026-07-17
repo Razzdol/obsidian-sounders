@@ -45,8 +45,6 @@ See [CHANGELOG.md](https://github.com/Razzdol/obsidian-sounders/blob/main/CHANGE
 
 Found a bug? [Open an issue](https://github.com/Razzdol/obsidian-sounders/issues/new)
 
-Want a new feature? [Email me](mailto:romanovlast.business@gmail.com) at romanovlast.business@gmail.com
-
-version 1.1.0
+version 1.2.0
 
 [by Razzdol :)](https://github.com/Razzdol)

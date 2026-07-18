@@ -11,17 +11,18 @@
 
 ## Features
 
-- Sidebar button — displays the current track
+- Sidebar button with configurable left-click action: play/pause or next track
+- Shows what is currently playing
 
 ![Current](_current.gif)
 
-- Custom track order
-
-![Grab](_trackOrder.gif)
-
+- Custom track order (drag and drop)
 - Double-click a track name, artist, or playlist title to rename
-- Shuffle, repeat (off / one / autoplay)
-- Seek bar and volume control
+- Shuffle and repeat modes (off / one / auto)
+- Playback speed control (0.5x-2.0x), with double-click reset to 1.0x
+- Seek bar for file tracks
+- Search tracks in the active playlist
+- Command Palette commands: Play next sound, Play/pause, Open settings(player)
 
 ## Settings
 
